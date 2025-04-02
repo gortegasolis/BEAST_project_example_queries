@@ -1,0 +1,175 @@
+---
+title: "Example queries"
+author: "Gabriel Ortega"
+format:
+  html:
+    output-file: index.html
+    toc: true
+    number-sections: true
+    colorlinks: true
+execute: 
+  eval: false
+---
+
+## Note
+
+WORK IN PROGRESS. IF YOU NEED ADDITIONAL INFORMATION TO BE ADDED HERE OR HAVE ANY REQUESTS, PLEASE EMAIL ME AT ortega_solis\@fzp.czu.cz.
+
+## About the databases
+
+The MOBI lab maintains species occurrence and probability records in SQL databases. The primary databases are **`MOBI_atlases_v1`**, which contains stable datasets, and **`MOBI_atlases_testing`**, which holds the most up-to-date but unverified atlas data. Since SQL is a standardized language, many R packages can interact with these databases. In this example, I use **`dbplyr`** due to the popularity of the tidyverse ecosystem. However, you can run the same queries with almost any other software that supports SQL.
+
+## Libraries
+
+```{r "Load/install libraries"}
+# Load the packages. Install pacman first in case it is not available
+pacman::p_load(
+  sf, terra, tidyverse, tidyterra, tictoc, RPostgres, dbplyr, askpass
+)
+```
+
+## Connect to the database
+
+Before connecting, remember that most ports in our server are closed for security reasons (IT policy). The workaround is to open an SSH tunnel using the following command in a terminal (Powershell for Windows users):
+
+```         
+ssh YOUR-USER@srv-asus-fzp.science.fzp.czu.cz -L 5432:localhost:5432
+```
+
+Normally you shouldn't close the terminal or PowerSHELL window once the tunnel is open. Linux users can launch the ssh tunnel inside a `screen` session, detach from it pressing CTL+a+d and then close the terminal.
+
+Now you can connect to the database with the following code:
+
+```{r}
+# Connect to the database
+con <- dbConnect(Postgres(),
+  dbname = "MOBI_atlases_testing",
+  host = "localhost",
+  port = 5432,
+  user = "YOUR-DATABASE-USER-NAME",
+  password = askpass("Password: ")
+)
+```
+
+## Example queries
+
+### List tables
+
+List the available tables. The ones of interest are Code Books (CB\_) with control vocabulary about licenses, models, etc... and MOBI (MOBI\_) that holds the proper records:
+
+```{r}
+dbListTables(con) %>%
+  purrr::keep(~ grepl("^(CB\\_|MOBI\\_[a-z]+)[^0-9]*$", .))
+```
+
+Unfortunately, dbListTables don't show virtual tables (views). There are two types of views in our databases:
+
+1.  **Normal views** that execute a simple query and show the results.
+
+2.  **Materialized views** that are complex queries already executed whose results are stored in the database cache.
+
+As a user, you will see the views just as tables. You can check the views in our databases this way:
+
+```{r}
+query <- "
+  SELECT viewname AS table_name
+  FROM pg_views
+  WHERE schemaname = 'public' AND viewname LIKE 'MOBI%'
+  UNION
+  SELECT matviewname AS table_name
+  FROM pg_matviews
+  WHERE schemaname = 'public' AND matviewname LIKE 'MOBI%'
+"
+
+# Execute the combined query
+tbl(con, sql(query)) %>%
+  pull(table_name)
+```
+
+### Check the datasets available
+
+Atlas information, such as **`datasetID`**, **`licenseID`**, and required **coauthorships**, should be primarily verified [here](https://teams.microsoft.com/l/entity/1c256a65-83a6-4b5c-9ccf-78f8afb6f1e8/_djb2_msteams_prefix_3860493077?context=%7B%22channelId%22%3A%2219%3A83f73536d2d1486796ec7d176d35e415%40thread.tacv2%22%7D&tenantId=f26a48e1-fc21-461a-b97f-ac5bd535f341 "Official atlases status spreadsheet"). However, this information is also stored in the MOBI_dataset table to provide additional context to the records in the database:
+
+```{r}
+tbl(con, "MOBI_dataset")
+```
+
+You can also query the table **MOBI_vw_tables_information** to see the size of the data tables, column names and other helpful information. Table names ending with a number are subsections of bigger tables with the same name. The numbers are the corresponding datasetID.
+
+```{r}
+tbl(con, "MOBI_vw_tables_information")
+```
+
+### Importing data
+
+The most important table for you (as a user) is likely to be **MOBI_vw_scaled_presence_records**. You can check the head of the table before loading it:
+
+```{r}
+tbl(con, sql('SELECT * FROM "MOBI_vw_scaled_presence_records"
+             LIMIT 5'))
+```
+
+#### Using SQL
+
+The following code allows you to import a single atlas dataset according to its datasetID (Birds of Ontario = 18) from **MOBI_vw_scaled_presence_records** and restrict the records to its original resolution (scalingID = 1):
+
+```{r}
+# Importing the Ontario birds atlas data. Check the datasetID in MOBI_dataset (above)
+tic()
+data <- tbl(con, sql('SELECT * FROM "MOBI_vw_scaled_presence_records"
+                     WHERE "datasetID" = 18
+                     AND "scalingID" = 1')) %>%
+  collect()
+toc()
+```
+
+#### Using tidyverse
+
+I prefer to use SQL inside the tbl function because it makes clear that the SQL instructions are executed on the server side. However, if you prefer the tidyverse way, the previous query can be executed like this:
+
+```{r}
+# Importing the Ontario birds atlas data. Check the datasetID in MOBI_dataset (above)
+tic()
+data <- tbl(con, "MOBI_vw_scaled_presence_records") %>%
+  filter(datasetID == 18 & scalingID == 1) %>%
+  collect()
+toc()
+```
+
+#### Selecting columns
+
+If you want to select just a few columns from a table, it is possible to do it like this (you can infer the tidyverse alternative):
+
+```{r}
+tic()
+data <- tbl(con, sql('SELECT
+                     "datasetID",
+                     "scalingID",
+                     "siteID",
+                     "verbatimIdentification",
+                     "startYear",
+                     "endYear" --Do not add comma here
+                     FROM "MOBI_vw_scaled_presence_records"
+                      WHERE "datasetID" = 18
+                      AND "scalingID" = 1')) %>%
+  collect()
+toc()
+```
+
+#### Import spatial data
+
+Use sf or terra to import the corresponding grid from the table **MOBI_geometry**.
+
+```{r}
+tic()
+grid <- st_read(con, query = 'SELECT * FROM "MOBI_geometry"
+                WHERE "datasetID" = 18
+                AND "scalingID" = 1')
+toc()
+```
+
+## Session info
+
+```{r eval=TRUE}
+sessionInfo()
+```
