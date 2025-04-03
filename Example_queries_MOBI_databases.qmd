@@ -13,16 +13,19 @@ execute:
 
 ## Note
 
-WORK IN PROGRESS. IF YOU NEED ADDITIONAL INFORMATION TO BE ADDED HERE OR HAVE ANY REQUESTS, PLEASE EMAIL ME AT ortega_solis\@fzp.czu.cz.
+IF YOU NEED HELP, ADDITIONAL INFORMATION OR HAVE ANY REQUESTS, PLEASE EMAIL ME AT ortega_solis\@fzp.czu.cz.
 
 ## About the databases
 
-The MOBI lab maintains species occurrence and probability records in SQL databases. The primary databases are **`MOBI_atlases_v1`**, which contains stable datasets, and **`MOBI_atlases_testing`**, which holds the most up-to-date but unverified atlas data. Since SQL is a standardized language, many R packages can interact with these databases. In this example, I use **`dbplyr`** due to the popularity of the tidyverse ecosystem. However, you can run the same queries with almost any other software that supports SQL.
+The MOBI lab maintains species occurrence and probability records in SQL databases. The primary databases are **`MOBI_atlases_v1`**, which contains stable datasets, and **`MOBI_atlases_development`**, which holds the most up-to-date but unverified atlas data. Since SQL is a standardized language, many R and Python packages can interact with these databases. In this example, I use R and rely on **`dbplyr`** due to the popularity of the tidyverse ecosystem. However, you can run equivalent queries with almost any other software that supports SQL.
 
 ## Libraries
 
 ```{r "Load/install libraries"}
-# Load the packages. Install pacman first in case it is not available
+# Ensure all required packages are installed and load them
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  install.packages("pacman")
+}
 pacman::p_load(
   sf, terra, tidyverse, tidyterra, tictoc, RPostgres, dbplyr, askpass
 )
@@ -36,14 +39,14 @@ Before connecting, remember that most ports in our server are closed for securit
 ssh YOUR-USER@srv-asus-fzp.science.fzp.czu.cz -L 5432:localhost:5432
 ```
 
-Normally you shouldn't close the terminal or PowerSHELL window once the tunnel is open. Linux users can launch the ssh tunnel inside a `screen` session, detach from it pressing CTL+a+d and then close the terminal.
+If port 5432 is already in use in you computer, you can use `5433:localhost:5432` or any other local port. Normally you shouldn't close the terminal or PowerSHELL window once the tunnel is open. However, Linux users can launch the ssh tunnel inside a `screen` session, detach from it by pressing CTL+a+d and then close the terminal.
 
 Now you can connect to the database with the following code:
 
 ```{r}
 # Connect to the database
 con <- dbConnect(Postgres(),
-  dbname = "MOBI_atlases_testing",
+  dbname = "MOBI_atlases_v1",
   host = "localhost",
   port = 5432,
   user = "YOUR-DATABASE-USER-NAME",
@@ -58,17 +61,17 @@ con <- dbConnect(Postgres(),
 List the available tables. The ones of interest are Code Books (CB\_) with control vocabulary about licenses, models, etc... and MOBI (MOBI\_) that holds the proper records:
 
 ```{r}
-dbListTables(con) %>%
-  purrr::keep(~ grepl("^(CB\\_|MOBI\\_[a-z]+)[^0-9]*$", .))
+dbListTables(con) %>% # Step 1: pull a list of tables
+  purrr::keep(~ grepl("^(CB\\_|MOBI\\_[a-z]+)[^0-9]*$", .)) # Step 2: keep only tables whose names start with CB_ or MOBI_
 ```
 
-Unfortunately, dbListTables don't show virtual tables (views). There are two types of views in our databases:
+Tables with *vw* in their names are views. There are two types of views in our databases:
 
-1.  **Normal views** that execute a simple query and show the results.
+1.  **Views** that often execute a simple code on the fly and show the results every time they are queried.
 
-2.  **Materialized views** that are complex queries already executed whose results are stored in the database cache.
+2.  **Materialized views** that are complex or heavy queries already executed whose results are stored in the database cache to ensure fast access. Likely, you won't query the materialized views directly but just their outcome pulled into normal views with the name 'MOBI_vw_FINAL...'
 
-As a user, you will see the views just as tables. You can check the views in our databases this way:
+You can take a look at our views and materialized views this way:
 
 ```{r}
 query <- "
@@ -88,13 +91,13 @@ tbl(con, sql(query)) %>%
 
 ### Check the datasets available
 
-Atlas information, such as **`datasetID`**, **`licenseID`**, and required **coauthorships**, should be primarily verified [here](https://teams.microsoft.com/l/entity/1c256a65-83a6-4b5c-9ccf-78f8afb6f1e8/_djb2_msteams_prefix_3860493077?context=%7B%22channelId%22%3A%2219%3A83f73536d2d1486796ec7d176d35e415%40thread.tacv2%22%7D&tenantId=f26a48e1-fc21-461a-b97f-ac5bd535f341 "Official atlases status spreadsheet"). However, this information is also stored in the MOBI_dataset table to provide additional context to the records in the database:
+Atlas information, such as **`datasetID`**, **`licenseID`**, and required **coauthorships**, should be primarily verified [here](https://teams.microsoft.com/l/entity/1c256a65-83a6-4b5c-9ccf-78f8afb6f1e8/_djb2_msteams_prefix_3860493077?context=%7B%22channelId%22%3A%2219%3A83f73536d2d1486796ec7d176d35e415%40thread.tacv2%22%7D&tenantId=f26a48e1-fc21-461a-b97f-ac5bd535f341 "Official atlases status spreadsheet"). However, a subset of this information is also stored in the MOBI_dataset table to provide additional context to the records in the database:
 
 ```{r}
 tbl(con, "MOBI_dataset")
 ```
 
-You can also query the table **MOBI_vw_tables_information** to see the size of the data tables, column names and other helpful information. Table names ending with a number are subsections of bigger tables with the same name. The numbers are the corresponding datasetID.
+You can also query the table **MOBI_vw_tables_information** to see the size of the data tables, column names, and other helpful information. Table names ending with a number are subsections of bigger tables with the same name, where the number corresponds to the **datasetID**. For example, a table named `MOBI_presence_18` contains data specific to the dataset with `datasetID = 18`. PLEASE TAKE A LOOK AT THIS TABLE BEFORE LOADING DATA INTO YOUR R SESSION; the column **table_size** should help you decide whether to pull an entire table or just its subsets.
 
 ```{r}
 tbl(con, "MOBI_vw_tables_information")
@@ -102,21 +105,21 @@ tbl(con, "MOBI_vw_tables_information")
 
 ### Importing data
 
-The most important table for you (as a user) is likely to be **MOBI_vw_scaled_presence_records**. You can check the head of the table before loading it:
+The most important table for you (as a user) is likely to be **MOBI_vw_FINAL_presence_records**. You can check the head of the table before loading it:
 
 ```{r}
-tbl(con, sql('SELECT * FROM "MOBI_vw_scaled_presence_records"
+tbl(con, sql('SELECT * FROM "MOBI_vw_FINAL_presence_records"
              LIMIT 5'))
 ```
 
 #### Using SQL
 
-The following code allows you to import a single atlas dataset according to its datasetID (Birds of Ontario = 18) from **MOBI_vw_scaled_presence_records** and restrict the records to its original resolution (scalingID = 1):
+The following code allows you to import a single atlas dataset according to its datasetID (Birds of Ontario = 18) from **MOBI_vw_FINAL_presence_records**. The `scalingID` column shows the resolution or scale of the data. Here I select the original resolution (`scalingID = 1`):
 
 ```{r}
 # Importing the Ontario birds atlas data. Check the datasetID in MOBI_dataset (above)
 tic()
-data <- tbl(con, sql('SELECT * FROM "MOBI_vw_scaled_presence_records"
+data <- tbl(con, sql('SELECT * FROM "MOBI_vw_FINAL_presence_records"
                      WHERE "datasetID" = 18
                      AND "scalingID" = 1')) %>%
   collect()
@@ -125,12 +128,12 @@ toc()
 
 #### Using tidyverse
 
-I prefer to use SQL inside the tbl function because it makes clear that the SQL instructions are executed on the server side. However, if you prefer the tidyverse way, the previous query can be executed like this:
+Some of us could prefer to use SQL queries inside the tbl function because it makes clear that the instructions are executed on the server side. The same query could be stored as an object and run with any R package that use SQL. However, if you prefer the tidyverse way, the previous query can be executed like this:
 
 ```{r}
 # Importing the Ontario birds atlas data. Check the datasetID in MOBI_dataset (above)
 tic()
-data <- tbl(con, "MOBI_vw_scaled_presence_records") %>%
+data <- tbl(con, "MOBI_vw_FINAL_presence_records") %>%
   filter(datasetID == 18 & scalingID == 1) %>%
   collect()
 toc()
@@ -138,7 +141,7 @@ toc()
 
 #### Selecting columns
 
-If you want to select just a few columns from a table, it is possible to do it like this (you can infer the tidyverse alternative):
+If you want to select just a few columns from a table, it is possible to do it like this:
 
 ```{r}
 tic()
@@ -149,23 +152,51 @@ data <- tbl(con, sql('SELECT
                      "verbatimIdentification",
                      "startYear",
                      "endYear" --Do not add comma here
-                     FROM "MOBI_vw_scaled_presence_records"
+                     FROM "MOBI_vw_FINAL_presence_records"
                       WHERE "datasetID" = 18
                       AND "scalingID" = 1')) %>%
   collect()
 toc()
 ```
 
-#### Import spatial data
-
-Use sf or terra to import the corresponding grid from the table **MOBI_geometry**.
+.. and the more tidyverse way:
 
 ```{r}
 tic()
-grid <- st_read(con, query = 'SELECT * FROM "MOBI_geometry"
+data2 <- tbl(con, "MOBI_vw_FINAL_presence_records") %>%
+  filter(datasetID == 18 & scalingID == 1) %>%
+  select(datasetID, scalingID, siteID, verbatimIdentification, startYear, endYear) %>%
+  collect()
+toc()
+
+setdiff(data,data2)
+```
+
+#### Import spatial data
+
+Spatial geometries are stored mainly in two tables: 1) **MOBI_site** which holds the original cell grid geometries together with a heavy version of them cropped to study area borders and landmasses, and 2) **MOBI_vw_FINAL_site_metrics** with grid cells across multiple resolutions. An additional difference between **MOBI_site** and **MOBI_vw_FINAL_site_metrics** is that the first contain small or almost linear cells in the joining of neighboring UTM zones. Such cells were merged to form bigger cells in **MOBI_vw_FINAL_site_metrics**.
+
+Use sf or terra to import the spatial data you want:
+
+```{r}
+tic()
+grid <- st_read(con, query = 'SELECT "verbatimSiteID", "geometry" FROM "MOBI_site"
+                WHERE "datasetID" = 18')
+toc()
+
+plet(vect(grid))
+```
+
+The same grid can be retrieved by querying **MOBI_vw_FINAL_site_metrics**, but it will have the numeric siteIDs assigned by the MOBI team instead of the verbatimSiteID and corrected versions of the original cells:
+
+```{r}
+tic()
+grid2 <- st_read(con, query = 'SELECT * FROM "MOBI_vw_FINAL_site_metrics"
                 WHERE "datasetID" = 18
                 AND "scalingID" = 1')
 toc()
+
+plet(vect(grid2))
 ```
 
 ## Session info
