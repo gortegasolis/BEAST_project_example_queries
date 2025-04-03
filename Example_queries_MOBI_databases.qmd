@@ -13,7 +13,7 @@ execute:
 
 ## Note
 
-IF YOU NEED HELP, ADDITIONAL INFORMATION OR HAVE ANY REQUESTS, PLEASE EMAIL ME AT ortega_solis\@fzp.czu.cz.
+Work in progress...
 
 ## About the databases
 
