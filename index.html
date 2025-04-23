@@ -91,7 +91,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#importing-data" id="toc-importing-data" class="nav-link" data-scroll-target="#importing-data"><span class="header-section-number">5.3</span> Importing data</a></li>
   </ul></li>
   <li><a href="#rasterize-species-occurrences" id="toc-rasterize-species-occurrences" class="nav-link" data-scroll-target="#rasterize-species-occurrences"><span class="header-section-number">6</span> Rasterize species occurrences</a></li>
-  <li><a href="#session-info" id="toc-session-info" class="nav-link" data-scroll-target="#session-info"><span class="header-section-number">7</span> Session info</a></li>
+  <li><a href="#transform-raster-into-matrix" id="toc-transform-raster-into-matrix" class="nav-link" data-scroll-target="#transform-raster-into-matrix"><span class="header-section-number">7</span> Transform raster into matrix</a></li>
+  <li><a href="#session-info" id="toc-session-info" class="nav-link" data-scroll-target="#session-info"><span class="header-section-number">8</span> Session info</a></li>
   </ul>
 </nav>
 </div>
@@ -383,10 +384,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb18-52"><a href="#cb18-52" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 </section>
-<section id="session-info" class="level2" data-number="7">
-<h2 data-number="7" class="anchored" data-anchor-id="session-info"><span class="header-section-number">7</span> Session info</h2>
+<section id="transform-raster-into-matrix" class="level2" data-number="7">
+<h2 data-number="7" class="anchored" data-anchor-id="transform-raster-into-matrix"><span class="header-section-number">7</span> Transform raster into matrix</h2>
 <div class="cell">
-<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>raster_ls <span class="ot">&lt;-</span> <span class="fu">list.files</span>(<span class="st">"exported_rasters"</span>, <span class="at">full.names =</span> T)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="do">## I'll import one file but this can be easily written as a loop</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>file <span class="ot">&lt;-</span> raster_ls[<span class="dv">1</span>]</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>raster <span class="ot">&lt;-</span> <span class="fu">rast</span>(file)</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>matrix <span class="ot">&lt;-</span> terra<span class="sc">::</span><span class="fu">as.matrix</span>(raster, <span class="at">wide =</span> T)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="session-info" class="level2" data-number="8">
+<h2 data-number="8" class="anchored" data-anchor-id="session-info"><span class="header-section-number">8</span> Session info</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>R version 4.5.0 (2025-04-11)
 Platform: x86_64-pc-linux-gnu

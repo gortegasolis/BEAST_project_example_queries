@@ -299,6 +299,16 @@ for (time in samplingPeriods) {
 }
 ```
 
+## Transform raster into matrix
+
+```{r}
+raster_ls <- list.files("exported_rasters", full.names = T)
+
+## I'll import one file but this can be easily written as a loop
+file <- raster_ls[1]
+raster <- rast(file)
+matrix <- terra::as.matrix(raster, wide = T)
+```
 
 ## Session info
 
