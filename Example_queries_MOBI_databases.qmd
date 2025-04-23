@@ -48,8 +48,8 @@ Now you can connect to the database with the following code:
 con <- dbConnect(Postgres(),
   dbname = "MOBI_atlases_v1",
   host = "localhost",
-  port = 5432,
-  user = "YOUR-DATABASE-USER-NAME",
+  port = 5433,
+  user = "atlasadmin",
   password = askpass("Password: ")
 )
 ```
@@ -198,6 +198,107 @@ toc()
 
 plet(vect(grid2))
 ```
+
+## Rasterize species occurrences
+
+We will first load the libraries (if not loaded) and set some variables so they can be modified on a single place in the script.
+```{r}
+# Load libraries
+pacman::p_load(sf, terra, tidyverse, tidyterra)
+
+# Set the dataset and scaling you want
+dataID <- 6
+scaleID <- 1
+```
+
+To rasterize the species occurrences we first must import the grid we want to use as a canvas. 
+```{r}
+tic()
+grid <- st_read(con, query = str_glue('SELECT 
+                "siteID",
+                "geometry"
+                 FROM "MOBI_vw_FINAL_site_metrics"
+                WHERE "datasetID" = {dataID}
+                AND "scalingID" = {scaleID}'))
+toc()
+```
+
+Next get a list of species to rasterize.
+
+```{r}
+tic()
+species <- tbl(con, sql(str_glue('SELECT DISTINCT
+                     "scientificName",
+                     "samplingPeriodID"
+                     FROM "MOBI_vw_FINAL_presence_records"
+                      WHERE "datasetID" = {dataID}
+                      AND "scalingID" = {scaleID}'))) %>%
+  collect()
+
+samplingPeriods <- unique(species$samplingPeriodID)
+
+species <- unique(species$scientificName)
+
+toc()
+```
+
+Now let's rasterize
+
+```{r}
+# Calculate the cell resolution
+cell_bbox <- st_bbox(grid[1, ])
+cell_width  <- cell_bbox["xmax"] - cell_bbox["xmin"]
+cell_height <- cell_bbox["ymax"] - cell_bbox["ymin"]
+
+# Ensure the output directories exist
+if (!dir.exists("exported_vectors")) {
+  dir.create("exported_vectors", recursive = TRUE)
+}
+if (!dir.exists("exported_rasters")) {
+  dir.create("exported_rasters", recursive = TRUE)
+}
+
+# Loop over sampling periods
+for (time in samplingPeriods) {
+  # Loop over the species list
+  for (sp in species) {
+    data <- tbl(con, sql(str_glue('SELECT DISTINCT "siteID"
+                     FROM "MOBI_vw_FINAL_presence_records"
+                      WHERE "datasetID" = {dataID}
+                      AND "scalingID" = {scaleID}
+                      AND "samplingPeriodID" = {time}
+                      AND "scientificName" = \'{sp}\''))) %>%
+      collect()
+
+    data$presence <- 1
+
+    sp_vector <- left_join(grid, data, by = "siteID")
+
+    sp_vector <- sp_vector %>%
+      mutate(presence = if_else(is.na(presence), 0, presence))
+
+    # Rewrite sp
+    sp <- str_replace(sp, " ", "_")
+
+    # Export vector
+    st_write(sp_vector, str_glue("exported_vectors/{sp}_{time}_datasetID{dataID}.gpkg"), delete_dsn = TRUE)
+
+    # Create a raster template with the same extent and resolution as the grid
+    template_raster <- rast(
+      extent = st_bbox(sp_vector),
+      resolution = c(cell_width, cell_height),
+      crs = st_crs(sp_vector)$wkt
+    )
+
+    # Rasterize the column presence
+    sp_raster <- rasterize(vect(sp_vector), template_raster, field = "presence")
+
+    # Export the raster
+    writeRaster(sp_raster, str_glue("exported_rasters/{sp}_{time}_datasetID{dataID}.tif"), overwrite = TRUE)
+  }
+}
+```
+
 
 ## Session info
 
