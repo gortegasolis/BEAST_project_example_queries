@@ -48,8 +48,8 @@ Now you can connect to the database with the following code:
 con <- dbConnect(Postgres(),
   dbname = "MOBI_atlases_v1",
   host = "localhost",
-  port = 5433,
-  user = "atlasadmin",
+  port = 5432,
+  user = "YOUR-POSTGRESQL-USER",
   password = askpass("Password: ")
 )
 ```
